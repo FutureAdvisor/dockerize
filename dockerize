@@ -50,7 +50,7 @@ get_environment_Linux() {
 	local ppid
 	ppid=$PPID
 	test "$ppid" -eq 0 && ppid=1
-	env="$(cat /proc/$ppid/environ | tr "\0" "\n")
+	env="$(cat /proc/$ppid/environ 2>/dev/null | tr "\0" "\n")
 SHLVL=.*
 _=.*
 PATH=.*
@@ -106,8 +106,10 @@ pinata_mount_Darwin() {
 command=$(basename $0)
 bindir=$(dirname $0)
 container=$(readlink $0)
+pwd=${PWD}
 if [ -n "$USERPROFILE" ]; then
   execwdve=${USERPROFILE}/bin/execwdve
+  pwd=${pwd//\/mnt/}
 else
   execwdve=${bindir}/execwdve
 fi
@@ -190,4 +192,4 @@ if [ -z "$instance" ]; then
 fi
 # Use \n as the delimiter to process array items
 IFS=$'\n' env=($(get_environment_$(uname -s)))
-exec docker exec ${docker_tty} $instance /bin/execwdve "${env[@]}" "${PWD}" $command "$@"
+exec docker exec ${docker_tty} $instance /bin/execwdve "${env[@]}" "${pwd}" $command "$@"
