@@ -19,7 +19,11 @@ fail() {
 
 home=$HOME
 os=$(uname -s)
-if [ -n $USERPROFILE ]; then
+pwd=${PWD}
+execwdve=${bindir}/execwdve
+if [ -n "$USERPROFILE" ]; then
+  execwdve=${USERPROFILE}/bin/execwdve
+  pwd=${PWD/\/mnt/}
   os=Windows
   home=$USERPROFILE
 fi
@@ -80,7 +84,7 @@ docker_tty='-i'
 [ -c /dev/fd/0 ] && docker_tty='-it'
 
 pinata_mount_Linux() {
-	if [ -n $PINATA_SOCK ]; then
+	if [ -n "$PINATA_SOCK" ]; then
 		pinata="-v $PINATA_SOCK:$SSH_AUTH_SOCK -e PINATA_SOCK -e SSH_AUTH_SOCK" 
 	else
 		pinata="-v $SSH_AUTH_SOCK:$SSH_AUTH_SOCK -e SSH_AUTH_SOCK"
@@ -117,13 +121,6 @@ pinata_mount_Windows() {
 command=$(basename $0)
 bindir=$(dirname $0)
 container=$(readlink $0)
-pwd=${PWD}
-if [ -n "$USERPROFILE" ]; then
-  execwdve=${USERPROFILE}/bin/execwdve
-  pwd=${pwd//\/mnt/}
-else
-  execwdve=${bindir}/execwdve
-fi
 container=${container:-$command}
 containerpath=${bindir}/$container
 case $command in
