@@ -1,0 +1,16 @@
+{
+  "containers" : {
+    "ruby" : {
+      "commands" : [
+        "bundle",
+        "ruby",
+        "irb"
+      ]
+    },
+    "golang" : {
+      "commands" : [
+        "go"
+      ]
+    }
+  }
+}
