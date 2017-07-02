@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"unsafe"
@@ -55,32 +56,80 @@ func stty_onlcr(fd uintptr) (*Termios, error) {
 	return old, nil
 }
 
+/*
+	These data structures are for unmarshalling the JSON data
+	I load them into a map by command, but the file is much more
+	convenient to write by container.
+	This might in future include other things per container than
+	supported commands.
+	It might also include other global options than "containers".
+	{"containers":{"golang":{"commands":["go"]}}}
+	is current valid syntax.
+*/
 type Containers struct {
 	Container ContainerMap `json:"containers"`
 }
 
-type CommandList struct {
+type ContainerOptions struct {
 	Commands []string `json:"commands"`
 }
 
-type ContainerMap map[string]CommandList
+type ContainerMap map[string]ContainerOptions
 
+/*
+	Reads a configuration file from "name" and outputs a map of commands to containers
+*/
 func readConfig(name string) *map[string]*string {
 	containers := []string{}
 	commands := map[string]*string{}
-	config_bytes, _ := ioutil.ReadFile(name)
 	config := Containers{}
-	json.Unmarshal(config_bytes, &config)
+	if err := json.Unmarshal([]byte(name), &config); err != nil {
+		config_bytes, _ := ioutil.ReadFile(name)
+		// if I didn't need the command index, we'd be done by now
+		json.Unmarshal(config_bytes, &config)
+	}
 	for ctr, cmds := range config.Container {
-		fmt.Printf("%d %s\n", len(containers), ctr)
+		// fmt.Printf("%d %s\n", len(containers), ctr)
 		pos := len(containers)
 		containers = append(containers, ctr)
 		for _, cmd := range cmds.Commands {
 			commands[cmd] = &containers[pos]
-			fmt.Printf("\t%s->%s\n", cmd, *commands[cmd])
+			// fmt.Printf("\t%s->%s\n", cmd, *commands[cmd])
 		}
 	}
 	return &commands
+}
+
+func homeDir() string {
+	if home, present := os.LookupEnv("USERPROFILE"); present {
+		return home
+	} else {
+		home, _ := os.LookupEnv("HOME")
+		return home
+	}
+}
+
+func loadup(file string) string {
+	path, _ := os.Getwd()
+	for path[len(path)-1] != os.PathSeparator {
+		if _, err := os.Stat(path + string(os.PathSeparator) + file); !os.IsNotExist(err) {
+			break
+		}
+		// fmt.Println(path)
+		path = filepath.Dir(path)
+	}
+	if path[len(path)-1] == os.PathSeparator {
+		dir := homeDir() + string(os.PathSeparator) + file
+		if _, err := os.Stat(dir); !os.IsNotExist(err) {
+			path = homeDir()
+		}
+	}
+	// fmt.Println(path)
+	if path[len(path)-1] != os.PathSeparator {
+		content, _ := ioutil.ReadFile(path + string(os.PathSeparator) + file)
+		return strings.TrimRight(string(content), " \t\r\n")
+	}
+	return ""
 }
 
 // Trampoline used to be sufficient until I needed environment handling
@@ -88,7 +137,10 @@ func readConfig(name string) *map[string]*string {
 func main() {
 	env := os.Environ()
 	args := []string{}
-	readConfig("dockerize.json")
+	commands := readConfig(loadup("dockerize.json"))
+	fmt.Println(commands)
+	version := loadup(".ruby-version")
+	fmt.Printf("%s\n", version)
 	os.Exit(1)
 	workdir := ""
 	stage := 0
