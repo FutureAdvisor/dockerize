@@ -1,6 +1,6 @@
 #!/bin/bash
 fail() {
-	echo "%@"
+	echo "$@"
 	exit 1
 }
 
