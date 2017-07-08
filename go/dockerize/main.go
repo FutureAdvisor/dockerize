@@ -4,57 +4,70 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
-	"unsafe"
 )
 
-type Termios struct {
-	Iflag  uint64
-	Oflag  uint64
-	Cflag  uint64
-	Lflag  uint64
-	Cc     [20]byte
-	Ispeed uint64
-	Ospeed uint64
+/*
+	Our operations use the host version of docker-engine and what
+	constitutes a safe path mean that we need to be able to tell
+	the difference between linux and wsl.
+
+	on native linux we should use the user's home directory but
+	Windows likes to segregate the user home directory inside
+	the Linux filesystem, which only WSL can see, so on Windows
+	we need to use the USERPROFILE directory.
+*/
+func osdetect() string {
+	theos := runtime.GOOS
+	if theos == "linux" {
+		if text, err := ioutil.ReadFile("/proc/sys/kernel/osrelease"); err == nil && strings.Contains(string(text), "Microsoft") {
+			theos = "linux/windows"
+		}
+	}
+	return theos
 }
 
-// TcSetAttr restores the terminal connected to the given file descriptor to a
-// previous state.
-func TcSetAttr(fd uintptr, termios *Termios) error {
-	if _, _, err := syscall.Syscall(syscall.SYS_IOCTL, fd, uintptr(setTermios), uintptr(unsafe.Pointer(termios))); err != 0 {
-		return err
+func hashify(list []string) map[string]int {
+	ret := make(map[string]int)
+	for _, s := range list {
+		ret[s] = 1
 	}
-	return nil
+	return ret
 }
 
-// TcGetAttr retrieves the current terminal settings and returns it.
-func TcGetAttr(fd uintptr) (*Termios, error) {
-	var termios = &Termios{}
-	if _, _, err := syscall.Syscall(syscall.SYS_IOCTL, fd, getTermios, uintptr(unsafe.Pointer(termios))); err != 0 {
-		return nil, err
+func exclude(ss []string, exclmap map[string]int) []string {
+	ret := make([]string, 0, len(ss))
+	for _, s := range ss {
+		if _, ok := exclmap[s[0:strings.IndexRune(s, '=')]]; !ok {
+			ret = append(ret, s)
+		}
 	}
-	return termios, nil
+	return ret
 }
 
-func stty_onlcr(fd uintptr) (*Termios, error) {
-	old, err := TcGetAttr(fd)
-	if err != nil {
-		return nil, err
-	}
+// This string does double duty to check we installed ourselves OK.
+const (
+	usageString = "Usage: execwdve [<env>=<val>]... <workdir> <cmd> [<args>]..."
+)
 
-	new := *old
-	new.Oflag |= syscall.ONLCR
-
-	if err := TcSetAttr(fd, &new); err != nil {
-		return nil, err
-	}
-	return old, nil
-}
+var (
+	nixExclude = []string{"SHLVL", "SHELL", "HOSTTYPE", "_", "PATH", "DOCKER_HOST", "SSH_AUTH_SOCK",
+		"SSH_AGENT_PID", "LS_COLORS", "PWD"}
+	winExclude = []string{"", "ALLUSERSPROFILE", "APPDATA", "asl.log", "CommonProgramFiles",
+		"CommonProgramFiles(x86)", "CommonProgramW6432", "COMPUTERNAME", "ComSpec",
+		"HOMEDRIVE", "HOMEPATH", "LOCALAPPDATA", "LOGONSERVER",
+		"NUMBER_OF_PROCESSORS", "OneDrive", "OS", "Path", "PATHEXT", "PROCESSOR_ARCHITECTURE",
+		"PROCESSOR_IDENTIFIER", "PROCESSOR_LEVEL", "PROCESSOR_REVISION", "ProgramData",
+		"ProgramFiles", "ProgramFiles(x86)", "ProgramW6432", "PROMPT", "PSModulePath",
+		"PUBLIC", "SESSIONNAME", "SystemDrive", "SystemRoot", "TEMP", "TMP", "USERDOMAIN",
+		"USERDOMAIN_ROAMINGPROFILE", "USERNAME", "USERPROFILE", "VS110COMNTOOLS",
+		"VS120COMNTOOLS", "VS140COMNTOOLS", "windir"}
+)
 
 /*
 	These data structures are for unmarshalling the JSON data
@@ -132,41 +145,31 @@ func loadup(file string) string {
 	return ""
 }
 
-// Trampoline used to be sufficient until I needed environment handling
-
-func main() {
+func execwdve() {
 	env := os.Environ()
 	args := []string{}
-	commands := readConfig(loadup("dockerize.json"))
-	fmt.Println(commands)
-	version := loadup(".ruby-version")
-	fmt.Printf("%s\n", version)
-	os.Exit(1)
 	workdir := ""
 	stage := 0
 	for _, arg := range os.Args[1:] {
-		if strings.Contains(arg, "-onlcr") {
-			fd := uintptr(syscall.Stdout)
-			stty_onlcr(fd)
+		if stage == 0 && strings.Contains(arg, "=") {
+			env = append(env, arg)
 		} else {
-			if stage == 0 && strings.Contains(arg, "=") {
-				env = append(env, arg)
+			if stage == 0 {
+				workdir = arg
+				stage++
 			} else {
-				if stage == 0 {
-					workdir = arg
-					stage++
-				} else {
-					args = append(args, arg)
-				}
+				args = append(args, arg)
 			}
 		}
 	}
 	if len(args) == 0 {
-		log.Fatal("Usage: execwdve [<env>=<val>]... <workdir> <cmd> [<args>]...")
+		fmt.Println(usageString)
+		os.Exit(0)
 	}
 	err := syscall.Chdir(workdir)
 	if err != nil {
-		log.Fatalf("Can't change to working directory '%s'\n%s", workdir, err)
+		fmt.Printf("Can't change to working directory '%s'\n%s", workdir, err)
+		os.Exit(1)
 	}
 	executable := ""
 	if strings.Contains(args[0], "/") {
@@ -174,9 +177,121 @@ func main() {
 	} else {
 		executable, err = exec.LookPath(args[0])
 		if err != nil {
-			log.Fatalf("Can't find '%s' in the path\n%s", args[0], err)
+			fmt.Printf("Can't find '%s' in the path\n%s", args[0], err)
+			os.Exit(2)
 		}
 	}
 	err = syscall.Exec(executable, args, env)
-	log.Println(err)
+	fmt.Printf("Can't exec: %s", err.Error())
+}
+
+func head(text string) string {
+	outputLines := strings.SplitN(text, "\n", 1)
+	output := ""
+	if outputLines != nil && len(outputLines) > 0 {
+		output = strings.TrimRight(outputLines[0], "\n\r")
+	}
+	return output
+}
+
+func copySelfToTemp() {
+	absSelf, _ := filepath.Abs(os.Args[0])
+	if osdetect() != "linux" {
+		// currently I know about .exe and no extension
+		// .linux will be this binary built for linux
+		absSelf = strings.TrimSuffix(absSelf, ".exe") + ".linux"
+	}
+	cmdOutput, _ := exec.Command("docker", "run", "-i", "--rm", "-v", absSelf+":/bin/dockerize:ro",
+		"-v", "/tmp:/share", "alpine", "cp", "/bin/dockerize", "/share/").CombinedOutput()
+	fmt.Print(string(cmdOutput))
+	cmdOutput, _ = exec.Command("docker", "run", "-i", "--rm", "-v", "/tmp/dockerize:/bin/execwdve:ro",
+		"alpine", "execwdve").CombinedOutput()
+	output := string(cmdOutput)
+	if len(output) > len(usageString) && usageString == output[0:len(usageString)] {
+		fmt.Println("successfully installed.")
+		os.Exit(0)
+	} else {
+		fmt.Println("installation failed.")
+		os.Exit(1)
+	}
+}
+
+func installSymlinks() {}
+
+const dockerizeUsageString = "dockerize init - setup docker for using dockerize\n" +
+	"dockerize install <path> - install symlinks to known programs to path"
+
+func dockerize() {
+	if len(os.Args) < 2 {
+		fmt.Println(dockerizeUsageString)
+		os.Exit(0)
+	}
+	switch os.Args[1] {
+	case "install":
+		installSymlinks()
+	case "init":
+		copySelfToTemp()
+	}
+}
+
+func doWith() {}
+func runCommand(command string) {
+	var remove []string
+	absSelf := "/tmp/dockerize"
+	if osdetect() == "windows" {
+		remove = winExclude
+	} else {
+		remove = nixExclude
+	}
+	env := exclude(os.Environ(), hashify(remove))
+	commands := readConfig(loadup("dockerize.json"))
+	containername := *(*commands)[command]
+	cleanContainername := strings.Replace(containername, "/", "__", -1)
+	fmt.Printf("run command '%s' from container '%s'\n", command, containername)
+	versionfile := fmt.Sprintf(".%s-version", containername)
+	prefix := containername + "-"
+	containerversion := loadup(versionfile)
+	if len(containerversion) > len(prefix) && containerversion[0:len(prefix)] == prefix {
+		containerversion = containerversion[len(prefix):]
+	}
+	if containerversion == "" {
+		containerversion = "latest"
+	}
+	instanceName := cleanContainername + "_" + containerversion
+	cmdOutput, _ := exec.Command("docker", "ps", "-qf", "name="+instanceName).Output()
+	instance := head(string(cmdOutput))
+	containerVolumes := []string{"-v", homeDir() + ":" + homeDir(),
+		"-v", "~/.ssh/known_hosts:/etc/ssh/ssh_known_hosts",
+		"-v", absSelf + ":/bin/execwdve:ro"}
+	fmt.Printf("search for instance: '%s' returned: '%s'\n", instanceName, instance)
+	fmt.Printf("mounts: %s\n", strings.Join(containerVolumes, " "))
+	fmt.Printf("environment: \"%s\"\n", strings.Join(env, "\" \""))
+
+}
+
+/*
+	Command processing is fun
+	dockerize install <location> (all known symlinks) to $0
+	dockerize init (copy itself into docker host /tmp)
+	dockerize upgrade (I think that can go away)
+	with container command (very useful)
+	command ...
+*/
+
+func main() {
+	basename := filepath.Base(os.Args[0])
+	if osdetect() == "windows" {
+		basename = strings.TrimSuffix(basename, ".exe")
+	}
+	switch basename {
+	case "execwdve":
+		execwdve()
+	case "dockerize":
+		dockerize()
+	case "with":
+		doWith()
+	default:
+		runCommand(basename)
+	}
+	os.Exit(0)
 }
