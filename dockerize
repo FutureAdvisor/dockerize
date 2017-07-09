@@ -181,7 +181,6 @@ case $command in
 		esac
 		exit 0
 esac
-test -x "$(which realpath)" || fail "realpath not installed: brew install coreutils"
 
 clean_container=${container//\//__}
 container_version="$(loadup .$(basename ${container})-version)"
