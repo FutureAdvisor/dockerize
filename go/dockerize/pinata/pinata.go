@@ -57,20 +57,22 @@ func ForwardSSH(home string) error {
 		Port:  "2244:22",
 		Flags: "-d --init",
 	}
-	// run container - local state to /share and /tmp:/tmp
-	instance, err := pinataSSH.Run()
-	fmt.Printf("pinata id: %s\n", instance)
-	// get the host ip for the container with docker inspect
-	hostIP := pinataSSH.HostIP
-	// ssh-keyscan and add to known hosts (or should we just ignore hosts file?)
-	// start ssh to the container (forked to background)
-	knownHostContent, _ := exec.Command("ssh-keyscan", "-p", "2244", hostIP).Output()
-	ioutil.WriteFile(pinataHome+"known_hosts", []byte(knownHostContent), 0644)
-	cmd := exec.Command("ssh", "-f", "-o", "UserKnownHostsFile="+pinataHome+"/known_hosts",
-		"-A", "-p", "2244", "root@"+hostIP, "/root/ssh-find-agent.sh")
-	cmd.Start()
-	// return OK!
-	return err
+	if running, _ := pinataSSH.IsRunning(); !running {
+		// run container - local state to /share and /tmp:/tmp
+		pinataSSH.Run()
+		fmt.Printf("pinata id: %s\n", pinataSSH.ID)
+		// get the host ip for the container with docker inspect
+		hostIP := pinataSSH.HostIP
+		// ssh-keyscan and add to known hosts (or should we just ignore hosts file?)
+		// start ssh to the container (forked to background)
+		knownHostContent, _ := exec.Command("ssh-keyscan", "-p", "2244", hostIP).Output()
+		ioutil.WriteFile(pinataHome+"known_hosts", []byte(knownHostContent), 0644)
+		cmd := exec.Command("ssh", "-f", "-o", "UserKnownHostsFile="+pinataHome+"/known_hosts",
+			"-A", "-p", "2244", "root@"+hostIP, "/root/ssh-find-agent.sh")
+		cmd.Start()
+	}
+	// return OK! for now, need to do error handling above.
+	return nil
 }
 
 // Volume returns the docker volume mount

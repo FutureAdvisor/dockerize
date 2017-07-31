@@ -2,7 +2,12 @@
   // Comments are stripped from this file before parsing as JSON
   "portability" : {
     "default" : {
-      "home" : "HOME"
+      "home" : "HOME",
+      "exclude_environment" : [
+        "SHLVL", "SHELL", "HOSTTYPE", "_",
+        "PATH", "DOCKER_HOST", "SSH_AUTH_SOCK",
+		    "SSH_AGENT_PID", "LS_COLORS", "PWD"
+      ]
     },
     "linux/windows" : {
       "home" : "USERPROFILE",
@@ -17,7 +22,18 @@
         { "from": "\\\\",
           "to": "/",
           "flags": "all" }],
-      "executable_suffix" : ".exe"
+      "executable_suffix" : ".exe",
+      "exclude_environment" : [
+        "", "ALLUSERSPROFILE", "APPDATA", "asl.log", "CommonProgramFiles",
+    		"CommonProgramFiles(x86)", "CommonProgramW6432", "COMPUTERNAME", "ComSpec",
+    		"HOMEDRIVE", "HOMEPATH", "LOCALAPPDATA", "LOGONSERVER",
+    		"NUMBER_OF_PROCESSORS", "OneDrive", "OS", "Path", "PATHEXT", "PROCESSOR_ARCHITECTURE",
+    		"PROCESSOR_IDENTIFIER", "PROCESSOR_LEVEL", "PROCESSOR_REVISION", "ProgramData",
+    		"ProgramFiles", "ProgramFiles(x86)", "ProgramW6432", "PROMPT", "PSModulePath",
+    		"PUBLIC", "SESSIONNAME", "SystemDrive", "SystemRoot", "TEMP", "TMP", "USERDOMAIN",
+    		"USERDOMAIN_ROAMINGPROFILE", "USERNAME", "USERPROFILE", "VS110COMNTOOLS",
+    		"VS120COMNTOOLS", "VS140COMNTOOLS", "windir"
+      ]
     }
   },
   "containers" : {
@@ -29,7 +45,7 @@
       ],
       "volumes" : [
         // Store bundles separately by ruby version
-        "$HOME/.local/ruby/${container_version}/bundle:/usr/local/bundle"
+        "$HOME/.local/ruby/${container_version}/bundle:/usr/local/bundle:delegated"
       ]
     },
     "python" : {
@@ -42,7 +58,7 @@
       ],
       "volumes" :[
         // pip --user installs go here.
-        "$HOME/.local/python/${container_version}:/root/.local"
+        "$HOME/.local/python/${container_version}:/root/.local:delegated"
       ]
     },
     "golang" : {
@@ -60,6 +76,10 @@
       	"gorename",
         "goreturns",
       	"guru"
+      ],
+      "volumes" :[
+        // delegate ~/go to the go container.
+        "$HOME/.local/go:/go:delegated"
       ]
     }
   }
