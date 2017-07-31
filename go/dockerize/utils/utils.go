@@ -9,6 +9,20 @@ import (
 	"strings"
 )
 
+// IsTTY returns true if Stdin is a tty
+func IsTTY() bool {
+	if fi, err := os.Stdin.Stat(); err == nil && (fi.Mode()&os.ModeCharDevice) != 0 {
+		return true
+	} else {
+		if err != nil {
+			// maybe there's a way to detect running windows in wsl
+			// fmt.Printf("Error statting os.Stdin(%#v): %s", os.Stdin, err)
+			return false
+		}
+	}
+	return false
+}
+
 // RegexReplace performs regex replaces with parameter expansion
 func RegexReplace(str string, regex string, repl string, count int, lower bool) string {
 	out := ""

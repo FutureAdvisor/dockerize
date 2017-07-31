@@ -14,7 +14,7 @@
         { "from" : "^([A-Za-z]):", 
           "to" : "/$1",
           "flags" : "lower" },
-        { "from": "\\",
+        { "from": "\\\\",
           "to": "/",
           "flags": "all" }],
       "executable_suffix" : ".exe"

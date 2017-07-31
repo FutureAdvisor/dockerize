@@ -1,7 +1,9 @@
 package main
 
 import (
+	"dockerize/docker"
 	"dockerize/impl"
+	"dockerize/pinata"
 	"dockerize/utils"
 	"encoding/json"
 	"fmt"
@@ -28,7 +30,9 @@ import (
 // This will generate us a jsonfiles.go with our dockerize_json inside
 //go:generate go run scripts/includeconfig.go
 
-var runner = impl.RealRunner{}
+var (
+	runner = impl.RealRunner{}
+)
 
 func osdetect() string {
 	theos := impl.GOOS
@@ -136,7 +140,7 @@ type ContainerMap map[string]ContainerOptions
 type OSMap map[string]TranslationOptions
 
 // CommandMap is a simple map used to reverse index the containers by command
-type CommandMap map[string]*string
+type CommandMap map[string]string
 
 /*
 	readConfig reads a configuration file from "name" and outputs
@@ -161,8 +165,7 @@ func readConfig(name string) {
 	}
 	for containerName, options := range config.Containers {
 		for _, command := range options.Commands {
-			commands[command] = &containerName
-			// fmt.Printf("\t%s->%s\n", cmd, *commands[cmd])
+			commands[command] = containerName
 		}
 	}
 }
@@ -289,16 +292,22 @@ func processPortability() {
 	port.Home, _ = os.LookupEnv(port.Home)
 }
 
+func appendTTYFlags(args []string) []string {
+	if utils.IsTTY() {
+		args = append(args, "-it")
+	}
+	return args
+}
+
 func doWith() {}
 func runCommand(command string) {
 	var (
-		remove           []string
-		containerversion string
+		remove []string
 	)
 	absSelf := "/tmp/dockerize"
 	pwd, _ := os.Getwd()
 	pwd = ConvertPath(pwd)
-	fmt.Printf("pwd: %s, cmd: %s\n", pwd, command)
+	fmt.Printf("pwd: %s, cmd: %s, image: %s\n", pwd, command, commands[command])
 
 	if theos == "windows" {
 		remove = winExclude
@@ -306,34 +315,41 @@ func runCommand(command string) {
 		remove = nixExclude
 	}
 	env := exclude(os.Environ(), hashify(remove))
-	containername := *commands[command]
-	cleanContainername := strings.Replace(containername, "/", "__", -1)
-	versionfile := fmt.Sprintf(".%s-version", containername)
-	prefix := containername + "-"
-	if versionfile, found := utils.FindFile(versionfile, ".", port.Home); found {
-		containerversion = utils.ReadTrimmedFile(versionfile)
-	}
-	if len(containerversion) > len(prefix) && containerversion[0:len(prefix)] == prefix {
-		containerversion = containerversion[len(prefix):]
-	}
-	if containerversion == "" {
-		containerversion = "latest"
-	}
-	os.Setenv("container_version", containerversion)
-	instanceName := cleanContainername + "_" + containerversion
-	cmdOutput, _ := exec.Command("docker", "ps", "-qf", "name="+instanceName).Output()
-	var instance string
-	if instance = head(string(cmdOutput)); instance == "" {
-		containerVolumes := []string{"-v", ConvertPath(port.Home) + ":" + ConvertPath(port.Home),
-			"-v", "~/.ssh/known_hosts:/etc/ssh/ssh_known_hosts",
-			"-v", absSelf + ":/bin/execwdve:ro"}
+	containername := commands[command]
+	/*
+		cleanContainername := strings.Replace(containername, "/", "__", -1)
+		versionfile := fmt.Sprintf(".%s-version", containername)
+		prefix := containername + "-"
+		if versionfile, found := utils.FindFile(versionfile, ".", port.Home); found {
+			containerversion = utils.ReadTrimmedFile(versionfile)
+		}
+		if len(containerversion) > len(prefix) && containerversion[0:len(prefix)] == prefix {
+			containerversion = containerversion[len(prefix):]
+		}
+		if containerversion == "" {
+			containerversion = "latest"
+		}
+		os.Setenv("container_version", containerversion)
+	*/
+	container := docker.Container{Image: containername}
+	if running, _ := container.IsRunning(); !running {
+		pinata.ForwardSSH(port.Home)
+		containerVolumes := []string{
+			ConvertPath(port.Home) + ":" + ConvertPath(port.Home) + ":cached",
+			ConvertPath(port.Home) + "/.ssh/known_hosts:/etc/ssh/ssh_known_hosts",
+			absSelf + ":/bin/execwdve:ro"}
 		for _, volume := range config.Containers[containername].Volumes {
 			expanded := os.ExpandEnv(volume)
-			containerVolumes = append(containerVolumes, "-v", expanded)
+			containerVolumes = append(containerVolumes, expanded)
 		}
-		fmt.Printf("mounts: %s\n", strings.Join(containerVolumes, " "))
+		container.Volumes = containerVolumes
+		container.Cmd = "cat"
+		container.Run()
 	}
-	args := append([]string{"exec", "-it", instance, "/bin/execwdve"}, env...)
+	args := []string{"exec"}
+	args = appendTTYFlags(args)
+	args = append(args, container.ID, "/bin/execwdve")
+	args = append(args, env...)
 	args = append(args, pwd, command)
 	args = append(args, os.Args[1:]...)
 	cmd := exec.Command("docker", args...)
@@ -355,12 +371,16 @@ func runCommand(command string) {
 */
 
 func main() {
+	if err := docker.Connect(); err != nil {
+		fmt.Printf("Unable to connect to docker socket: %s\n", err)
+		os.Exit(1)
+	}
 	basename, _ := os.Executable()
 	if configPath, _ := utils.FindFile("dockerize.json", filepath.Dir(basename), "."); true {
 		readConfig(configPath)
 		processPortability()
 	}
-	basename = filepath.Base(basename)
+	basename = filepath.Base(os.Args[0])
 	basename = strings.TrimSuffix(basename, port.ExecutableSuffix)
 	switch basename {
 	case "execwdve":
