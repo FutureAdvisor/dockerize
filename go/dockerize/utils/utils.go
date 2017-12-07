@@ -11,14 +11,8 @@ import (
 
 // IsTTY returns true if Stdin is a tty
 func IsTTY() bool {
-	if fi, err := os.Stdin.Stat(); err == nil && (fi.Mode()&os.ModeCharDevice) != 0 {
+	if fi, err := os.Stdin.Stat(); err != nil || (fi.Mode()&os.ModeCharDevice) != 0 {
 		return true
-	} else {
-		if err != nil {
-			// maybe there's a way to detect running windows in wsl
-			// fmt.Printf("Error statting os.Stdin(%#v): %s", os.Stdin, err)
-			return false
-		}
 	}
 	return false
 }
@@ -69,10 +63,11 @@ func ReadTrimmedFile(file string) string {
 	return strings.TrimRight(string(content), " \t\r\n")
 }
 
-// FindFile for finding "file" in locations suggested by "flags"
+// FindFile for finding "file" by searching list of paths in "other"
 func FindFile(file string, other ...string) (string, bool) {
 	for _, path := range other {
 		if path == "." {
+			// . is a special case which will scan up from the current directory.
 			for path, _ := os.Getwd(); path[len(path)-1] != os.PathSeparator; path = filepath.Dir(path) {
 				dir := filepath.Join(path, file)
 				if _, err := os.Stat(dir); !os.IsNotExist(err) {
