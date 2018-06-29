@@ -82,7 +82,7 @@ pinata_location() {
 }
 
 docker_tty='-i'
-[ -c /dev/fd/0 ] && docker_tty='-it'
+[ -c /dev/fd/0 -a -c /dev/fd1 ] && docker_tty='-it'
 
 pinata_mount_Linux() {
 	if [ -n "$PINATA_SOCK" ]; then
@@ -188,7 +188,7 @@ container_version="${container_version#$(basename ${container})-}"
 container_version="${container_version:-latest}"
 
 container_volumes="-v $home:$home -v ~/.ssh/known_hosts:/etc/ssh/ssh_known_hosts -v ${execwdve}:/bin/execwdve:ro"
-environment=''
+environment="-e HOME=$home"
 test -f ${containerpath}.defaults && . ${containerpath}.defaults
 container_volumes=$(eval echo "$container_volumes")
 instance=$(docker ps -qf name=${clean_container}_${container_version} | head -1)
