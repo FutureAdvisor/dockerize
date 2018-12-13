@@ -186,16 +186,18 @@ clean_container=${container//\//__}
 container_version="$(loadup .$(basename ${container})-version)"
 container_version="${container_version#$(basename ${container})-}"
 container_version="${container_version:-latest}"
-
+test -f ${bindir}/dockerize.postup && container_postup=${bindir}/dockerize.postup
 container_volumes="-v $home:$home -v ~/.ssh/known_hosts:/etc/ssh/ssh_known_hosts -v ${execwdve}:/bin/execwdve:ro"
 environment="-e HOME=$home"
 test -f ${containerpath}.defaults && . ${containerpath}.defaults
-container_volumes=$(eval echo "$container_volumes")
 instance=$(docker ps -qf name=${clean_container}_${container_version} | head -1)
 if [ -z "$instance" ]; then
 	container_volumes="$(pinata_mount_$os) $container_volumes"
+	container_volumes=$(eval echo "$container_volumes")
 	cleanup=$(docker rm ${clean_container}_${container_version} 2>/dev/null)
 	instance=$(docker run -td $container_volumes $environment --name ${clean_container}_${container_version} $container:$container_version cat)
+	sleep 0.5
+	test -n "$container_postup" && docker exec ${docker_tty} $instance /bin/execwdve "${pwd}" sh -c "$container_postup"
 fi
 # Use \n as the delimiter to process array items
 IFS=$'\n' env=($(get_environment_$os))
