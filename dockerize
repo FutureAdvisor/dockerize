@@ -42,16 +42,16 @@ loadup() {
 # call as get_environment_$(uname -s)
 get_environment_Darwin() {
 	local env
-	env=$(ps Eww -o command $PPID); env=${env#$(ps ww -o command $PPID) }; env="$(sed 's/ \([^ ][^ ]*=\)/\'$'\n''\1/g' <<< "$env")
-SHLVL=.*
+	env="SHLVL=.*
 _=.*
 PATH=.*
 DOCKER_HOST=.*
 SSH_AUTH_SOCK=.*
 SSH_AGENT_PID=.*
 LS_COLORS=.*
+OLDPWD
 PWD=.*"
-	env | grep -x -v -f <(echo "${env}")
+	export | cut -d' ' -f3- | sed -e 's/="/=/' -e 's/"$//' | grep -x -v -f <(echo "${env}")
 }
 
 get_environment_Linux() {
@@ -68,7 +68,7 @@ SSH_AUTH_SOCK=.*
 SSH_AGENT_PID=.*
 LS_COLORS=.*
 PWD=.*"
-	env | grep -x -v -f <(echo "${env}") 
+	env | grep -x -v -f <(echo "${env}")
 }
 
 get_environment_Windows() {
@@ -82,11 +82,11 @@ pinata_location() {
 }
 
 docker_tty='-i'
-[ -c /dev/fd/0 -a -c /dev/fd1 ] && docker_tty='-it'
+[ -c /dev/fd/0 -a -c /dev/fd/1 ] && docker_tty='-it'
 
 pinata_mount_Linux() {
 	if [ -n "$PINATA_SOCK" ]; then
-		pinata="-v $PINATA_SOCK:$SSH_AUTH_SOCK -e PINATA_SOCK -e SSH_AUTH_SOCK" 
+		pinata="-v $PINATA_SOCK:$SSH_AUTH_SOCK -e PINATA_SOCK -e SSH_AUTH_SOCK"
 	else
 		pinata="-v $SSH_AUTH_SOCK:$SSH_AUTH_SOCK -e SSH_AUTH_SOCK"
 	fi
@@ -150,7 +150,7 @@ case $command in
 			# Self upgrade
 			currentinode=$(ls -i ${bindir}/dockerize | cut -f1 -d' ')
 			test -d ${bindir}/.dockerize.git || \
-			  git clone --mirror git@github.com:FutureAdvisor/dockerize ${bindir}/.dockerize.git
+				git clone --mirror git@github.com:FutureAdvisor/dockerize ${bindir}/.dockerize.git
 			git --git-dir ${bindir}/.dockerize.git fetch --prune
 			if diff <(git --git-dir ${bindir}/.dockerize.git show master:dockerize) $0 >/dev/null; then
 				echo "up to date"
@@ -187,7 +187,7 @@ container_version="$(loadup .$(basename ${container})-version)"
 container_version="${container_version#$(basename ${container})-}"
 container_version="${container_version:-latest}"
 test -f ${bindir}/dockerize.postup && container_postup=${bindir}/dockerize.postup
-container_volumes="-v $home:$home -v ~/.ssh/known_hosts:/etc/ssh/ssh_known_hosts -v ${execwdve}:/bin/execwdve:ro"
+container_volumes="-v $home:$home -v ~/.ssh:/root/.ssh -v ~/.ssh/known_hosts:/etc/ssh/ssh_known_hosts -v ${execwdve}:/bin/execwdve:ro"
 environment="-e HOME=$home"
 test -f ${containerpath}.defaults && . ${containerpath}.defaults
 instance=$(docker ps -qf name=${clean_container}_${container_version} | head -1)
@@ -195,7 +195,7 @@ if [ -z "$instance" ]; then
 	container_volumes="$(pinata_mount_$os) $container_volumes"
 	container_volumes=$(eval echo "$container_volumes")
 	cleanup=$(docker rm ${clean_container}_${container_version} 2>/dev/null)
-	instance=$(docker run -td $container_volumes $environment --name ${clean_container}_${container_version} $container:$container_version cat)
+	instance=$(docker run -td $container_volumes $environment --net local --name ${clean_container}_${container_version} $container:$container_version cat)
 	sleep 0.5
 	test -n "$container_postup" && docker exec ${docker_tty} $instance /bin/execwdve "${pwd}" sh -c "$container_postup"
 fi
